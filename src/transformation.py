@@ -37,4 +37,7 @@ def transform_to_silver(date=None):
 
     # Salvar como Parquet
     ensure_dir("silver")
-    silver_path = os.path.join(_
+    silver_path = os.path.join("silver", f"{date}.parquet")
+    df.to_parquet(silver_path, index=False)
+
+    logging.info(f"Arquivo salvo em {silver_path}")
