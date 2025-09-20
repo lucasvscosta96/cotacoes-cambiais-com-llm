@@ -8,12 +8,14 @@ def test_llm_summary_creates_file(mock_chat, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     os.makedirs("gold", exist_ok=True)
 
+    # Criar DataFrame com dados válidos
     df = pd.DataFrame({
         "base_currency": ["BRL"],
         "currency": ["USD"],
         "rate": [0.2],
-        "timestamp": ["2025-09-17 00:00:00"],
+        "date": ["2025-09-17 00:00:00"],
     })
+    df["rate"] = pd.to_numeric(df["rate"], errors="coerce")
     df.to_parquet("gold/2025-09-17.parquet", index=False)
 
     # Mock da resposta da OpenAI

@@ -2,6 +2,7 @@ from src.ingest import fetch_exchange_rates
 from src.transformation import transform_to_silver
 from src.load import save_to_gold
 from src.llm_summary import gerar_resumo_llm 
+from datetime import datetime
 
 def run_all(date=None, base_currency="BRL", top_n=5):
     """
@@ -12,7 +13,9 @@ def run_all(date=None, base_currency="BRL", top_n=5):
         base_currency: Moeda base para o resumo LLM
         top_n: Quantidade de moedas principais a incluir no resumo
     """
+    date = datetime.today().strftime("%Y-%m-%d")
     print(f"=== Iniciando pipeline para a data: {date or 'hoje'} ===")
+   
     fetch_exchange_rates(date)
     transform_to_silver(date)
     save_to_gold(date)

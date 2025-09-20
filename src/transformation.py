@@ -5,9 +5,9 @@ import logging
 from datetime import datetime
 from src.utils import setup_logging, ensure_dir
 
-def transform_to_silver(date=None):
-    setup_logging()
 
+def transform_to_silver(date=None):
+    # Usar a data atual como padrão se nenhuma data for fornecida
     if date is None:
         date = datetime.today().strftime("%Y-%m-%d")
 
@@ -15,30 +15,29 @@ def transform_to_silver(date=None):
     if not os.path.exists(raw_path):
         raise FileNotFoundError(f"Arquivo {raw_path} não encontrado.")
 
-    with open(raw_path, 'r') as f:
-        data = json.load(f)
+    # Carregar dados do JSON
+    with open(raw_path, "r") as f:
+        raw_data = json.load(f)
 
-    base_currency = data["base_code"]
-    timestamp = data["time_last_update_utc"]
-    rates = data["conversion_rates"]
+    # Validar e transformar os dados
+    conversion_rates = raw_data.get("conversion_rates", {})
+    valid_rates = {
+        currency: rate
+        for currency, rate in conversion_rates.items()
+        if isinstance(rate, (int, float)) and rate > 0  # Filtrar taxas inválidas
+    }
 
-    logging.info(f"Transformando dados de {base_currency} - {timestamp}")
+    if not valid_rates:
+        raise ValueError("Nenhuma taxa de câmbio válida encontrada.")
 
-    # Criar DataFrame
     df = pd.DataFrame([
-        {"base_currency": base_currency,
-         "currency": k,
-         "rate": v,
-         "timestamp": timestamp}
-        for k, v in rates.items()
+        {"base_currency": raw_data["base_code"], "currency": currency, "rate": rate, "date": date}
+        for currency, rate in valid_rates.items()
     ])
 
-    # Validação: remover taxas nulas ou negativas
-    df = df[df["rate"] > 0]
-
-    # Salvar como Parquet
-    ensure_dir("silver")
+    # Salvar em formato parquet
     silver_path = os.path.join("silver", f"{date}.parquet")
+    os.makedirs("silver", exist_ok=True)
     df.to_parquet(silver_path, index=False)
 
-    logging.info(f"Arquivo salvo em {silver_path}")
+    return df
