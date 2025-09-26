@@ -25,8 +25,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        # Instala o projeto em modo editável para que os testes encontrem a pasta `src`
-        pip install -e .
 
     - name: Set PYTHONPATH
       run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)/src" >> $GITHUB_ENV
