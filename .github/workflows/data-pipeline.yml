@@ -59,7 +59,7 @@ jobs:
           reports/
 
     - name: 7. Commit and push changes
-\      run: |
+      run: |
         # Configurar o user.email correto para o bot
         git config --global user.name "github-actions[bot]"
         git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
