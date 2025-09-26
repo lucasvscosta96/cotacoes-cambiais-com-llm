@@ -14,7 +14,7 @@ def test_ingest_creates_raw_file(monkeypatch, tmp_path):
     # 2. Simular a variável de ambiente da API Key
     #    Esta é a correção principal: o monkeypatch cria a variável
     #    necessária para o teste passar.
-    monkeypatch.setenv("EXCHANGE_RATE_API_KEY", "fake_api_key_for_testing")
+    monkeypatch.setenv("EXCHANGE_API_KEY", "fake_api_key_for_testing")
 
     # 3. Preparar uma resposta simulada (mock) da API
     mock_response_data = {
