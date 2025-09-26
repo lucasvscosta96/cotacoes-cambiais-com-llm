@@ -46,3 +46,13 @@ jobs:
           gold/
           reports/
 
+    - name: 7. Commit and push changes
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add raw/ silver/ gold/ reports/
+        git commit -m "Update processed data and reports [skip ci]" || echo "No changes to commit"
+        git push origin main
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
