@@ -9,6 +9,7 @@ jobs:
   build-and-run-pipeline:
     runs-on: ubuntu-latest
     env:
+      EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
     steps:
