@@ -1,43 +1,66 @@
+import pandas as pd
 import os
 import json
-import pandas as pd
+import yaml
 import logging
-from datetime import datetime
-from src.utils import setup_logging, ensure_dir
-
+from src.utils import ensure_dir, setup_logging
 
 def transform_to_silver(date=None):
-    # Usar a data atual como padrão se nenhuma data for fornecida
-    if date is None:
-        date = datetime.today().strftime("%Y-%m-%d")
+    """
+    Carrega os dados brutos, transforma-os e filtra pelas moedas de interesse
+    definidas no config.yaml antes de salvar na camada silver.
+    """
+    setup_logging()
+    
+    # Carregar as moedas de interesse a partir do config.yaml
+    config_path = "config.yaml"
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Arquivo de configuração não encontrado: {config_path}")
+    
+    with open(config_path, "r") as file:
+        config = yaml.safe_load(file)
+    
+    target_currencies = config.get("target_currencies")
+    if not target_currencies:
+        raise ValueError("A lista 'target_currencies' não foi encontrada ou está vazia no config.yaml")
 
+    # Carregar os dados brutos
     raw_path = os.path.join("raw", f"{date}.json")
     if not os.path.exists(raw_path):
-        raise FileNotFoundError(f"Arquivo {raw_path} não encontrado.")
+        raise FileNotFoundError(f"Arquivo raw não encontrado para a data {date}")
+        
+    with open(raw_path, 'r') as f:
+        data = json.load(f)
 
-    # Carregar dados do JSON
-    with open(raw_path, "r") as f:
-        raw_data = json.load(f)
+    # Lógica de transformação
+    base_currency = data.get("base_code")
+    rates = data.get("conversion_rates", {})
+    timestamp = data.get("time_last_update_unix")
 
-    # Validar e transformar os dados
-    conversion_rates = raw_data.get("conversion_rates", {})
-    valid_rates = {
-        currency: rate
-        for currency, rate in conversion_rates.items()
-        if isinstance(rate, (int, float)) and rate > 0  # Filtrar taxas inválidas
-    }
+    transformed_data = []
+    for currency, rate in rates.items():
+        transformed_data.append({
+            "base_currency": base_currency,
+            "currency": currency,
+            "rate": rate,
+            "timestamp": timestamp
+        })
 
-    if not valid_rates:
-        raise ValueError("Nenhuma taxa de câmbio válida encontrada.")
+    if not transformed_data:
+        logging.warning("Nenhum dado para transformar.")
+        return
 
-    df = pd.DataFrame([
-        {"base_currency": raw_data["base_code"], "currency": currency, "rate": rate, "date": date}
-        for currency, rate in valid_rates.items()
-    ])
+    df_silver = pd.DataFrame(transformed_data)
+    
+    # Filtrar pelas moedas-alvo definidas no config.yaml
+    logging.info(f"Filtrando o DataFrame pelas moedas de interesse: {target_currencies}")
+    df_silver = df_silver[df_silver['currency'].isin(target_currencies)]
 
-    # Salvar em formato parquet
+    # Verificação de qualidade dos dados
+    df_silver = df_silver[df_silver["rate"] > 0]
+
+    # Salvar na camada silver
+    ensure_dir("silver")
     silver_path = os.path.join("silver", f"{date}.parquet")
-    os.makedirs("silver", exist_ok=True)
-    df.to_parquet(silver_path, index=False)
-
-    return df
+    df_silver.to_parquet(silver_path, index=False)
+    logging.info(f"Dados transformados e salvos com sucesso em {silver_path}")

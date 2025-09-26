@@ -43,6 +43,7 @@ openai==1.109.1
 packaging==24.2
 pandas==2.3.2
 pillow==10.4.0
+plotly==6.3.0
 pluggy==1.6.0
 propcache==0.3.2
 proto-plus==1.26.1

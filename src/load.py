@@ -1,33 +1,55 @@
-import os
 import pandas as pd
+import os
 import logging
-from datetime import datetime
-from src.utils import setup_logging, ensure_dir
+from datetime import datetime, timedelta
+from src.utils import ensure_dir, setup_logging
 
 def save_to_gold(date=None):
+    """
+    Carrega os dados da camada silver e os enriquece com a variação
+    percentual diária antes de salvar na camada gold.
+    """
     setup_logging()
-
-    if date is None:
-        date = datetime.today().strftime("%Y-%m-%d")
-
+    
+    # Carregar dados da camada silver para a data atual
     silver_path = os.path.join("silver", f"{date}.parquet")
     if not os.path.exists(silver_path):
-        raise FileNotFoundError(f"Arquivo {silver_path} não encontrado.")
+        raise FileNotFoundError(f"Arquivo silver não encontrado para a data {date}")
 
-    df = pd.read_parquet(silver_path)
+    df_today = pd.read_parquet(silver_path)
 
-    # Verificar se a coluna "timestamp" existe antes de manipulá-la
-    if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    # Calcular a data do dia anterior
+    current_date_obj = datetime.strptime(date, "%Y-%m-%d")
+    previous_date_obj = current_date_obj - timedelta(days=1)
+    previous_date_str = previous_date_obj.strftime("%Y-%m-%d")
+    
+    previous_silver_path = os.path.join("silver", f"{previous_date_str}.parquet")
+
+    if os.path.exists(previous_silver_path):
+        logging.info(f"Dados do dia anterior ({previous_date_str}) encontrados. Calculando a variação percentual.")
+        df_yesterday = pd.read_parquet(previous_silver_path)
+        
+        df_yesterday = df_yesterday[['currency', 'rate']].rename(columns={'rate': 'rate_yesterday'})
+        
+        df_gold = pd.merge(df_today, df_yesterday, on='currency', how='left')
+        
+        df_gold['daily_change_pct'] = ((df_gold['rate'] - df_gold['rate_yesterday']) / df_gold['rate_yesterday']) * 100
+        
+        df_gold['daily_change_pct'] = df_gold['daily_change_pct'].fillna(0.0)
+        
+        df_gold = df_gold.drop(columns=['rate_yesterday'])
+        
     else:
-        logging.warning(f"A coluna 'timestamp' não foi encontrada no arquivo {silver_path}.")
+        logging.warning(f"Dados do dia anterior ({previous_date_str}) não encontrados. A variação diária será definida como 0.")
+        df_gold = df_today.copy()
+        df_gold['daily_change_pct'] = 0.0
 
+    # Salvar na camada gold
     ensure_dir("gold")
     gold_path = os.path.join("gold", f"{date}.parquet")
-    df.to_parquet(gold_path, index=False)
+    df_gold.to_parquet(gold_path, index=False)
+    logging.info(f"Dados enriquecidos da camada gold salvos com sucesso em {gold_path}")
 
-    logging.info(f"Dados finais salvos em {gold_path}")
-    return df
 
 
 if __name__ == "__main__":
