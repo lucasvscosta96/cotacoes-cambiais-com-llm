@@ -78,8 +78,10 @@ Siga estes passos para configurar e rodar o aplicativo Streamlit.
 
 ### 1. Pré-requisitos
 
-Certifique-se de que você tem o Python instalado
-
+- Certifique-se de que você tem o Python instalado
+- Necessário uma chave de API da OpenAI
+- Necessário uma chave de API do Exchange
+- Necessário configura-los como variáveis de ambiente
 
 
 ### 2. Clone do repositório
