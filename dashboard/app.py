@@ -2,45 +2,107 @@ import streamlit as st
 import pandas as pd
 import os
 import glob
+import numpy as np
 from datetime import datetime, timedelta, date 
 import altair as alt 
+
 # --- Configuração da Página ---
 st.set_page_config(
-    page_title="Dashboard de Cotações Cambiais",
-    page_icon="📊",
+    page_title="Dashboard de Contexto Cambial",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- Função para encontrar o relatório mais recente ---
-def get_latest_report_path(report_dir="reports"):
-    """Encontra o caminho do arquivo de relatório (.txt) mais recente."""
+# --- Funções de Ajuda ---
+
+def get_report_path(filename, report_dir="reports"):
+    """Retorna o caminho completo para um nome de arquivo de relatório específico."""
+    return os.path.join(report_dir, filename)
+
+def get_all_report_files(report_dir="reports"):
+    """Encontra e ordena todos os caminhos dos arquivos de relatório (.txt)."""
     search_path = os.path.join(report_dir, "*.txt")
     list_of_files = glob.glob(search_path)
     if not list_of_files:
-        return None
+        return []
     
-    # Encontra o arquivo modificado mais recentemente
-    latest_file = max(list_of_files, key=os.path.getmtime)
-    return latest_file
+    # Ordena pelo timestamp de modificação (mais recente primeiro)
+    list_of_files.sort(key=os.path.getmtime, reverse=True)
+    
+    # Retorna apenas os nomes dos arquivos para exibição
+    return [os.path.basename(f) for f in list_of_files]
 
-# --- Carregar e Exibir o Resumo ---
+@st.cache_data
+def load_gold_data() -> pd.DataFrame:
+    """Carrega e consolida todos os arquivos Parquet da pasta 'gold/'."""
+    gold_dir = "gold/"
+    if not os.path.exists(gold_dir): return pd.DataFrame() 
 
+    all_files = sorted(glob.glob(os.path.join(gold_dir, "*.parquet")))
+    if not all_files: return pd.DataFrame()
 
+    df_list = []
+    for file in all_files:
+        try:
+            df = pd.read_parquet(file)
+            date_str = os.path.basename(file).split('.')[0]
+            df['date'] = pd.to_datetime(date_str).date() 
+            df_list.append(df)
+        except Exception as e:
+            st.error(f"Erro ao ler o arquivo {file}: {e}")
+            
+    if not df_list: return pd.DataFrame()
 
-latest_report_path = get_latest_report_path()
+    full_df = pd.concat(df_list, ignore_index=True)
+    full_df['rate'] = pd.to_numeric(full_df['rate'], errors='coerce')
+    return full_df.sort_values(by="date")
+
+# --- Processamento de Dados (Foco no Contexto) ---
+
+df_raw = load_gold_data()
+
+if df_raw.empty:
+    st.title("📊 Dashboard de Cotações Cambiais")
+    st.warning("Nenhum dado encontrado na pasta /gold/. Execute o pipeline de dados primeiro.")
+    st.stop()
+    
+# Garante que 'date' é um objeto datetime para a filtragem no Streamlit
+df_raw['date'] = pd.to_datetime(df_raw['date'])
+
+# --- Sidebar e Filtros ---
+
+# LLM Summary (Bloco de seleção dinâmica)
+available_reports = get_all_report_files()
 
 st.sidebar.title("Resumo da LLM")
-if latest_report_path:
+
+if available_reports:
+    # 1. Selector para escolher o arquivo de relatório
+    selected_report_filename = st.sidebar.selectbox(
+        "Selecione o Relatório por Data:",
+        options=available_reports
+    )
+    selected_report_path = get_report_path(selected_report_filename)
+
     try:
-        with open(latest_report_path, 'r', encoding='utf-8') as f:
+        with open(selected_report_path, 'r', encoding='utf-8') as f:
             report_content = f.read()
         
-        st.sidebar.header("Relatório Mais Recente")
-        report_date = datetime.fromtimestamp(os.path.getmtime(latest_report_path)).strftime('%d/%m/%Y %H:%M:%S')
-        st.sidebar.markdown(f"**Data do Relatório:** *{report_date}*")
+        st.sidebar.header("Análise do Dia Selecionado")
+        
+        # Extrai a data do arquivo para exibição (Assume o formato YYYY-MM-DD_...)
+        date_part = selected_report_filename.split('_')[0]
+        try:
+            display_date = datetime.strptime(date_part, '%Y-%m-%d').strftime('%d/%m/%Y')
+        except ValueError:
+            # Fallback se o nome não estiver exatamente no formato esperado
+            display_date = selected_report_filename
+            
+        st.sidebar.markdown(f"**Data da Análise:** *{display_date}*")
+        
         # Usa um expander na sidebar para o texto longo do resumo
-        with st.sidebar.expander("Ver Análise da LLM"):
+        with st.sidebar.expander(f"Ver Análise Completa de {display_date}"):
             st.markdown(report_content)
         st.sidebar.divider()
         
@@ -48,72 +110,28 @@ if latest_report_path:
         st.sidebar.error(f"Erro ao carregar o relatório: {e}")
 else:
     st.sidebar.warning("Nenhum arquivo de relatório (.txt) encontrado.")
-
-
-# --- Carregamento de Dados com Cache ---
-@st.cache_data
-def load_gold_data() -> pd.DataFrame:
-    """
-    Carrega e consolida todos os arquivos Parquet da pasta 'gold/'.
-    Adiciona uma coluna 'date' baseada no nome do arquivo.
-    Retorna um DataFrame vazio se nenhum arquivo for encontrado.
-    """
-    gold_dir = "gold/"
-    if not os.path.exists(gold_dir):
-        return pd.DataFrame() 
-
-    # Ordena os arquivos para garantir que o processamento seja cronológico
-    all_files = sorted(glob.glob(os.path.join(gold_dir, "*.parquet")))
-    if not all_files:
-        return pd.DataFrame()
-
-    df_list = []
-    for file in all_files:
-        try:
-            df = pd.read_parquet(file)
-            date_str = os.path.basename(file).split('.')[0]
-            df['date'] = pd.to_datetime(date_str).date() # Armazena como objeto date puro
-            df_list.append(df)
-        except Exception as e:
-            st.error(f"Erro ao ler o arquivo {file}: {e}")
-    
-    if not df_list:
-        return pd.DataFrame()
-
-    full_df = pd.concat(df_list, ignore_index=True)
-    full_df['rate'] = pd.to_numeric(full_df['rate'], errors='coerce')
-    full_df['date'] = pd.to_datetime(full_df['date']) # Converte de volta para datetime para manipulação no pandas
-    
-    return full_df.sort_values(by="date")
-
-df = load_gold_data()
-
-if df.empty:
-    st.title("📊 Dashboard de Cotações Cambiais")
-    st.warning("Nenhum dado encontrado na pasta /gold/. Execute o pipeline de dados primeiro.")
-    st.stop()
+    st.sidebar.divider()
 
 st.sidebar.header("Filtros do Dashboard")
 
-# Filtro de Moedas
-available_currencies = sorted(df["currency"].unique())
-default_currencies = ["USD", "EUR", "GBP"] # Ajuste as moedas padrão se necessário
+available_currencies = sorted(df_raw["currency"].unique())
+default_currencies = ["USD", "EUR", "GBP"]
 selected_currencies = st.sidebar.multiselect(
-    "Selecione as moedas:",
+    "Selecione as moedas para análise:",
     options=available_currencies,
     default=[c for c in default_currencies if c in available_currencies]
 )
 
-# Filtro de Data
-min_date = df["date"].min().date()
-max_date = df["date"].max().date()
+# --- INCLUSÃO DO FILTRO DE DATA ---
+min_date = df_raw["date"].min().date()
+max_date = df_raw["date"].max().date()
 
 default_start_date = max_date - timedelta(days=30)
 if default_start_date < min_date:
     default_start_date = min_date
 
 date_range = st.sidebar.date_input(
-    "Selecione o período:",
+    "Selecione o Período Histórico (para o Gráfico e Contexto de 7D):",
     value=(default_start_date, max_date), # Padrão: últimos 30 dias
     min_value=min_date,
     max_value=max_date,
@@ -126,112 +144,162 @@ if len(date_range) != 2:
 
 start_date = min(date_range)
 end_date = max(date_range)
+# --- FIM DA INCLUSÃO DO FILTRO DE DATA ---
 
+st.sidebar.info(f"Dados atualizados até: {max_date.strftime('%d/%m/%Y')}")
 
-# --- Filtragem dos Dados ---
+# --- Cálculos de Contexto (Adiciona Média e Volatilidade) ---
 
-df_filtered = df[
-    (df["currency"].isin(selected_currencies)) &
-    (df["date"].dt.date >= start_date) &
-    (df["date"].dt.date <= end_date)
+# Filtra o DataFrame para o período selecionado no sidebar (para o Gráfico de Contexto)
+df_period_filtered = df_raw[
+    (df_raw["date"].dt.date >= start_date) & 
+    (df_raw["date"].dt.date <= end_date)
 ].copy()
-# --- Layout da Página Principal ---
-st.title("📊 Dashboard de Cotações Cambiais")
-st.markdown(f"Exibindo dados de **{start_date.strftime('%d/%m/%Y')}** a **{end_date.strftime('%d/%m/%Y')}**")
-st.markdown(f"*Última atualização encontrada em: {max_date.strftime('%d/%m/%Y')}*")
-
-st.markdown("---")
-
-# O restante do seu código (Tabela de Dados) vem aqui...
-
-# --- Tabela de Dados ---
-with st.expander("📄 Ver dados detalhados em tabela"):
-    if not df_filtered.empty:
-        st.dataframe(
-            df_filtered.sort_values(by=["date", "currency"], ascending=[False, True]),
-            hide_index=True,
-            use_container_width=True,
-            column_order=["date", "currency", "rate"],
-            column_config={
-                "date": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY"),
-                "currency": "Moeda",
-                "rate": st.column_config.NumberColumn("Cotação (R$)", format="%.4f"),
-            }
-        )
-    else:
-        st.write("Nenhum dado para exibir.")
 
 
-st.subheader("📈 Evolução das Moedas Selecionadas")
-chart = (
-    alt.Chart(df_filtered)
-    .mark_line(point=True)
-    .encode(
-        x="date:T", # :T para Temporal (Data/Tempo)
-        y="rate:Q", # :Q para Quantitativo (Numérico)
-        color="currency:N", # :N para Nominal (Categoria/Nome)
-        tooltip=["date", "currency", "rate", "daily_change_pct"]
-    )
-    .interactive()
+# Filtra o DataFrame para os últimos 7 dias (para calcular a média, independente do filtro de período, a menos que o período seja menor que 7 dias)
+seven_days_ago_calc = max(max_date - timedelta(days=7), df_raw["date"].min().date())
+df_last_7_days = df_raw[df_raw['date'].dt.date >= seven_days_ago_calc].copy()
+
+
+# Calcula a Média dos Últimos 7 Dias e a Desvios Padrão (Simulação de Volatilidade)
+context_metrics = df_last_7_days.groupby('currency')['rate'].agg(
+    rate_avg_7d='mean',
+    rate_std_7d='std'
+).reset_index()
+
+# DataFrame do último dia
+df_latest = df_raw[df_raw['date'].dt.date == max_date].copy()
+
+# Junta os dados mais recentes com as métricas de contexto
+df_analysis = pd.merge(
+    df_latest, 
+    context_metrics, 
+    on='currency', 
+    how='left'
 )
-st.altair_chart(chart, use_container_width=True)
 
+# Calcula o delta da cotação atual vs. a média dos 7 dias
+df_analysis['delta_vs_7d_pct'] = (
+    (df_analysis['rate'] - df_analysis['rate_avg_7d']) / df_analysis['rate_avg_7d']
+) * 100
+
+# Remove moedas não selecionadas para exibição
+df_analysis = df_analysis[df_analysis['currency'].isin(selected_currencies)].copy()
+
+if df_analysis.empty:
+    st.title("📊 Dashboard de Cotações Cambiais")
+    st.warning("Selecione pelo menos uma moeda válida.")
+    st.stop()
+
+
+# --- Layout da Página Principal e KPIs ---
+
+st.title("🧠 Dashboard de Contexto Cambial (Base BRL)")
+st.markdown(f"Análise focada no *snapshot* de **{max_date.strftime('%d/%m/%Y')}**.")
 st.markdown("---")
 
-# --- Métricas (KPIs) ---
-st.subheader("Desempenho da Base (BRL)")
-st.markdown(f"*(Variação indica o ganho/perda de força do **{df['base_currency'].iloc[0]}** frente à moeda cotada)*")
+st.subheader("1. KPIs de Benchmarking e Risco")
 
-# Obtém as duas datas mais recentes nos dados filtrados para calcular a variação
-latest_dates = df_filtered['date'].drop_duplicates().nlargest(2).sort_values(ascending=False).tolist()
+kpi_cols = st.columns(len(df_analysis) if len(df_analysis) > 0 else 1)
+base_currency = df_analysis['base_currency'].iloc[0]
 
-if len(latest_dates) >= 2:
-    latest_date = latest_dates[0]
-    previous_date = latest_dates[1]
-    
-    df_latest = df_filtered[df_filtered['date'] == latest_date]
-    df_previous = df_filtered[df_filtered['date'] == previous_date]
+# O loop itera usando idx (índice) em vez de i para evitar conflito
+for idx, row in df_analysis.iterrows():
+    currency = row['currency']
+    latest_rate = row['rate']
+    delta_vs_7d_pct = row['delta_vs_7d_pct']
+    std_dev = row['rate_std_7d'] if not pd.isna(row['rate_std_7d']) else 0.0 # Volatilidade
 
-    # Criar colunas para as métricas (o número de colunas é o número de moedas selecionadas)
-    kpi_cols = st.columns(len(selected_currencies) if len(selected_currencies) > 0 else 1)
-    base_currency = df['base_currency'].iloc[0] # Deve ser 'BRL'
-
-    for i, currency in enumerate(selected_currencies):
-        latest_rate_series = df_latest[df_latest['currency'] == currency]['rate']
-        previous_rate_series = df_previous[df_previous['currency'] == currency]['rate']
-
-        if not latest_rate_series.empty and not previous_rate_series.empty:
-            latest_rate = latest_rate_series.iloc[0]
-            previous_rate = previous_rate_series.iloc[0]
-            
-            # Cálculo Padrão: Variação da moeda cotada (USD/BRL)
-            delta_moeda_cotada = ((latest_rate - previous_rate) / previous_rate) * 100
-            
-            # NOVO CÁLCULO: Variação da Moeda Base (BRL/USD)
-            # Se a taxa sobe (positivo), a moeda base (BRL) perde força (negativo).
-            # Se a taxa desce (negativo), a moeda base (BRL) ganha força (positivo).
-            delta_base_forca = delta_moeda_cotada * -1
-            
-            with kpi_cols[i]:
-                # Formato brasileiro para o valor principal
-                value_br = f"{latest_rate:,.4f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                
-                # Exibe a FORÇA DA BASE (BRL)
-                st.metric(
-                    label=f"**{base_currency}** vs {currency}",
-                    value=f"R$ {value_br}", # Valor da cotação
-                    delta=f"{delta_base_forca:.2f}% (Força do {base_currency})",
-                    # delta_color="normal" # Streamlit já inverte a cor para delta negativo
-                )
+    # 1. Este bloco with está agora no escopo correto do loop for
+    with kpi_cols[df_analysis.index.get_loc(idx)]: # Usa get_loc(idx) para pegar a posição na coluna, pois df.iterrows() usa o índice original
+        # Inverter o sinal do delta para Força do BRL (Delta negativo = BRL perde força)
+        delta_base_forca = delta_vs_7d_pct * -1 if not pd.isna(delta_vs_7d_pct) else None
+        
+        # Formata o valor da cotação
+        value_br = f"{latest_rate:,.4f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        
+        # Verifica se há dados suficientes para a métrica de 7 dias
+        if not pd.isna(row['rate_avg_7d']):
+            # 1. KPI Principal: Cotação Atual vs Média 7D
+            st.metric(
+                label=f"**{base_currency}** vs {currency} | R$ {value_br}",
+                value=f"R$ {value_br}", 
+                delta=delta_base_forca, # Passa o float para a seta e percentual
+                delta_color="normal",
+            )
+            # 2. Contexto Adicional
+            st.caption(f"**vs. Média 7D:** {delta_vs_7d_pct:.2f}%")
+            st.caption(f"**Volatilidade (7D):** {std_dev:.5f}") # STD é um proxy para volatilidade
         else:
-             with kpi_cols[i]:
-                st.metric(
-                    label=f"**{base_currency}** vs {currency}",
-                    value="N/A",
-                    delta="Dados Insuficientes"
-                )
-else:
-    st.info("Selecione um período com pelo menos dois dias de dados para ver a variação.")
+            # Exibe N/A se não houver dados históricos (menos de 7 dias)
+            st.metric(
+                label=f"**{base_currency}** vs {currency}",
+                value="R$ N/A",
+                delta="Dados Insuficientes (7D)"
+            )
 
 st.markdown("---")
 
+# --- Gráfico de Dispersão (Contexto/Risco) ---
+st.subheader("2. Posição de Risco (Variação Diária vs Volatilidade)")
+
+# Adiciona o Delta Diário (Se você tiver a coluna 'daily_change_pct' no Parquet)
+# Para fins de demonstração, usaremos o delta_vs_7d_pct como o eixo Y (Variação)
+
+df_analysis['Delta vs 7D (%)'] = df_analysis['delta_vs_7d_pct']
+df_analysis['Volatilidade (STD)'] = df_analysis['rate_std_7d'].fillna(0)
+df_analysis['Cor'] = np.where(df_analysis['Delta vs 7D (%)'] > 0, 'Perda de Força do BRL', 'Ganho de Força do BRL') 
+# CORREÇÃO: A lógica da cor estava invertida. Delta > 0 (taxa subiu) = BRL perde força.
+
+# Usa Altair para criar um gráfico de dispersão (Scatter Plot)
+if not df_analysis.empty:
+    scatter_chart = (
+        alt.Chart(df_analysis)
+        .mark_circle(size=100)
+        .encode(
+            x=alt.X("Volatilidade (STD):Q", title="Risco: Volatilidade (Desvio Padrão 7D)"),
+            y=alt.Y("Delta vs 7D (%):Q", title="Posicionamento (vs. Média 7D)"),
+            color=alt.Color("Cor:N", scale=alt.Scale(domain=['Ganho de Força do BRL', 'Perda de Força do BRL'], range=['green', 'red'])),
+            tooltip=["currency", "Delta vs 7D (%)", "Volatilidade (STD)"]
+        )
+        .properties(
+            title="Moedas em Contexto de Risco vs Posição Atual"
+        )
+        .interactive()
+    )
+    
+    # Adiciona linhas de referência para o centro
+    # Calcula a média da volatilidade apenas sobre valores válidos
+    mean_volatility = df_analysis['Volatilidade (STD)'].replace([np.inf, -np.inf], np.nan).mean()
+
+    ref_lines = alt.Chart(pd.DataFrame({'y': [0], 'x': [mean_volatility]}))
+    
+    # Linha Horizontal no Zero (Eixo Y)
+    hline = ref_lines.mark_rule(color='black', strokeDash=[5,5]).encode(y='y:Q')
+    
+    # Linha Vertical na Média de Volatilidade (Eixo X)
+    v_line = ref_lines.mark_rule(color='gray', strokeDash=[3,3]).encode(x='x:Q')
+
+    st.altair_chart(scatter_chart + hline + v_line, use_container_width=True)
+else:
+    st.warning("Nenhum dado para o gráfico de dispersão.")
+
+st.markdown("---")
+
+# --- LLM Insight (Com Ação) ---
+st.subheader("3. Análise Executiva da LLM (Ação Sugerida)")
+st.info("A LLM analisa o posicionamento no gráfico acima e sugere ações.")
+
+# Simulação do texto da LLM focado no risco
+# Corrigindo a verificação de média para evitar NaN/inf
+mean_volatility_safe = df_analysis['Volatilidade (STD)'].replace([np.inf, -np.inf], np.nan).mean()
+
+if mean_volatility_safe > 0.0005:
+    llm_advice = "A volatilidade média desta semana está alta. O **USD** está fora do desvio padrão e em território de **perda de força** contra a média, mas seu risco é elevado. Recomendamos **adiar 48h** qualquer compra não essencial em USD."
+elif df_analysis['Delta vs 7D (%)'].min() < -1.0:
+     llm_advice = "O mercado está calmo, mas o **EUR** apresentou uma **desvalorização súbita de 1.5%** em relação à média de 7 dias. Esta é uma janela de oportunidade. Recomendamos **executar compras** na Zona do Euro imediatamente."
+else:
+     llm_advice = "O mercado cambial está estável e próximo da média semanal. Não há sinais fortes de risco ou oportunidade. Siga o plano de *hedge* programado."
+
+st.markdown(llm_advice)

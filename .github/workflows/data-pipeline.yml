@@ -1,15 +1,16 @@
 name: Data Pipeline
 
 on:
+  schedule:
+    - cron: '0 2 * * *' 
+    
   push:
     branches: [main]
-  # Adicione o workflow_dispatch para poder rodar manualmente
   workflow_dispatch:
 
-# 1. CORREÇÃO ESSENCIAL: Permissões de escrita para o GITHUB_TOKEN
 permissions:
   contents: write 
-  pull-requests: write # Opcional, mas útil para o workflow
+  pull-requests: write 
 
 jobs:
   build-and-run-pipeline:
@@ -20,14 +21,8 @@ jobs:
 
     steps:
     - name: 1. Checkout code
-      # Você precisa de um token para o checkout também, o GITHUB_TOKEN é injetado automaticamente
       uses: actions/checkout@v4 
-      # Se o erro 403 persistir, adicione aqui o token:
-      # with:
-      #   token: ${{ secrets.GITHUB_TOKEN }}
       
-
-    # ... (Etapas 2, 3, 4, 5 e 6 permanecem iguais) ...
     - name: 2. Set up Python
       uses: actions/setup-python@v5
       with:
