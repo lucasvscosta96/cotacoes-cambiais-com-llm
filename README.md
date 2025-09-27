@@ -30,6 +30,7 @@ O pipeline de dados segue uma arquitetura robusta de três camadas (`Raw`, `Silv
 
 ## Estrutura de diretório
 
+
 cotacoes-cambiais-com-llm/
 ├── .github/
 │   └── workflows/
