@@ -94,7 +94,7 @@ if df_raw.empty:
     st.stop()
     
 df_raw['date'] = pd.to_datetime(df_raw['date'])
-max_date = df_raw["date"].max().date()
+max_date_geral = df_raw["date"].max().date()
 
 # --- Sidebar e Filtros ---
 st.sidebar.title("Análise da LLM")
@@ -116,12 +116,12 @@ st.sidebar.divider()
 
 st.sidebar.header("Filtros do Dashboard")
 min_date = df_raw["date"].min().date()
-default_start_date = max(min_date, max_date - timedelta(days=30))
+default_start_date = max(min_date, max_date_geral - timedelta(days=30))
 
 date_range = st.sidebar.date_input(
     "Selecione o Período de Análise:",
-    value=(default_start_date, max_date),
-    min_value=min_date, max_value=max_date,
+    value=(default_start_date, max_date_geral),
+    min_value=min_date, max_value=max_date_geral,
 )
 
 if len(date_range) != 2: st.stop()
@@ -135,38 +135,45 @@ selected_currencies = st.sidebar.multiselect(
     default=[c for c in default_currencies if c in available_currencies]
 )
 
-st.sidebar.info(f"Dados atualizados até: {max_date.strftime('%d/%m/%Y')}")
+st.sidebar.info(f"Dados atualizados até: {max_date_geral.strftime('%d/%m/%Y')}")
 
-# --- Cálculos Dinâmicos Baseados nos Filtros ---
+# --- LÓGICA DE CÁLCULO CORRIGIDA ---
 
-# Filtra o DataFrame principal para o período selecionado no sidebar
+# Filtra o DataFrame principal para o período E moedas selecionados no sidebar
 df_period_filtered = df_raw[
     (df_raw["date"].dt.date >= start_date) & 
-    (df_raw["date"].dt.date <= end_date)
+    (df_raw["date"].dt.date <= end_date) &
+    (df_raw["currency"].isin(selected_currencies))
 ].copy()
 
-# Calcula a Média e Volatilidade DENTRO do período selecionado
+# Validação se há dados após a filtragem completa
+if df_period_filtered.empty:
+    st.title("📊 Dashboard de Cotações Cambiais")
+    st.warning("Nenhuma moeda selecionada ou dados insuficientes para o período e moedas escolhidas.")
+    st.stop()
+
+# 1. Determinar o último dia DENTRO do período filtrado
+end_date_in_period = df_period_filtered["date"].max().date()
+
+# 2. Calcular a Média e Volatilidade DENTRO do período selecionado
 context_metrics = df_period_filtered.groupby('currency')['rate'].agg(
     rate_avg_period='mean',
     rate_std_period='std'
 ).reset_index()
 
-# DataFrame do último dia disponível nos dados
-df_latest = df_raw[df_raw['date'].dt.date == max_date].copy()
+# 3. Obter os dados do último dia DENTRO do período filtrado
+df_latest_in_period = df_period_filtered[df_period_filtered['date'].dt.date == end_date_in_period].copy()
 
-# Junta os dados mais recentes com as métricas do período para análise
-df_analysis = pd.merge(df_latest, context_metrics, on='currency', how='left')
+# 4. Juntar os dados mais recentes com as métricas do período para análise
+df_analysis = pd.merge(df_latest_in_period, context_metrics, on='currency', how='left')
+
+# 5. Calcular o delta da cotação atual vs. a média do período
 df_analysis['delta_vs_period_pct'] = ((df_analysis['rate'] - df_analysis['rate_avg_period']) / df_analysis['rate_avg_period']) * 100
-df_analysis = df_analysis[df_analysis['currency'].isin(selected_currencies)].copy()
 
-if df_analysis.empty:
-    st.title("📊 Dashboard de Cotações Cambiais")
-    st.warning("Nenhuma moeda selecionada ou dados insuficientes para o período.")
-    st.stop()
 
 # --- Layout da Página Principal e KPIs ---
 st.title("🧠 Dashboard de Contexto Cambial (Base BRL)")
-st.markdown(f"Análise do dia **{max_date.strftime('%d/%m/%Y')}** em contexto com o período de **{start_date.strftime('%d/%m/%Y')}** a **{end_date.strftime('%d/%m/%Y')}**.")
+st.markdown(f"Análise do dia **{end_date_in_period.strftime('%d/%m/%Y')}** em contexto com o período de **{start_date.strftime('%d/%m/%Y')}** a **{end_date.strftime('%d/%m/%Y')}**.")
 st.markdown("---")
 
 st.subheader("1. KPIs de Benchmarking e Risco")
@@ -229,4 +236,3 @@ llm_advice = get_llm_actionable_insight(
 )
 
 st.success(llm_advice)
-
