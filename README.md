@@ -88,7 +88,8 @@ Siga estes passos para configurar e rodar o aplicativo Streamlit.
 - Certifique-se de que você tem o Python instalado
 - Necessário uma chave de API da OpenAI
 - Necessário uma chave de API do Exchange
-- Necessário configura-los como variáveis de ambiente
+- Necessário configura-los como variáveis de ambiente em um arquivo .env após clonagem do reositório
+- Nesse projeto e utilizado a LLM da OpenAI, para que não exceda a quota gratuíta, considere assinar a OpenAI.
 
 
 ### 2. Clone do repositório
@@ -99,13 +100,19 @@ git clone https://github.com/lucasvscosta96/cotacoes-cambiais-com-llm.git
 cd cotacoes-cambiais-com-llm
 ```
 
-### 3. Crie o Venv
+### 3. Crie o Venv e o .env
 
 ```bash
 python -m venv venv
 
 source venv/bin/activate
 ```
+- Crie um arquivo .env na raíz do repositório contendo as váriaveis da seguinte forma:
+```
+EXCHANGE_API_KEY=<VALOR DA CHAVE DO EXCHANGE RATE API>
+OPENAI_API_KEY=<VALOR DA CHAVE DA OPENAI>
+```
+
 ### 4. Instale as dependencias
 
 ```bash
